@@ -327,8 +327,8 @@ var cur=0, answers=[], piDone=false;
                "KXFEDDECISION-28JAN-H0"];
   var url="https://api.elections.kalshi.com/trade-api/v2/markets?tickers="+tickers.join(",");
   var ctl=("AbortController" in window)?new AbortController():null;
-  if(ctl) setTimeout(function(){ctl.abort();},5000);
-  fetch(url,ctl?{signal:ctl.signal}:{}).then(function(r){return r.json();}).then(function(d){
+  if(ctl) setTimeout(function(){ctl.abort();},8000);
+  fetch("/api/markets?tickers="+tickers.join(","),ctl?{signal:ctl.signal}:{}).then(function(r){if(!r.ok)throw 0;return r.json();}).catch(function(){return fetch(url,ctl?{signal:ctl.signal}:{}).then(function(r){return r.json();});}).then(function(d){
     if(!d||!d.markets||!d.markets.length) return;
     var mids={};
     d.markets.forEach(function(m){
