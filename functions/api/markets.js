@@ -1,6 +1,7 @@
 // Cloudflare Pages Function: GET /api/markets?tickers=T1,T2,...
-// Proxies Kalshi's public market-data API (no auth required) so the
-// browser avoids CORS. Read-only, GET-only, ticker charset allowlisted.
+// Proxies Kalshi public market data (no auth) so the browser avoids CORS.
+// Kalshi rate-limits shared egress IPs, so: retry once on 429 and edge-cache
+// successful responses for 60s (one good fetch per minute serves everyone).
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const tickers = (url.searchParams.get("tickers") || "").replace(/[^A-Za-z0-9.,\-]/g, "");
@@ -11,16 +12,21 @@ export async function onRequestGet(context) {
     });
   }
   const upstream = "https://api.elections.kalshi.com/trade-api/v2/markets?tickers=" + tickers;
-  const resp = await fetch(upstream, {
+  const hit = () => fetch(upstream, {
     headers: { accept: "application/json" },
-    cf: { cacheTtl: 30, cacheEverything: true }
+    cf: { cacheEverything: true, cacheTtlByStatus: { "200-299": 60, "400-499": 0, "500-599": 0 } }
   });
+  let resp = await hit();
+  if (resp.status === 429) {
+    await new Promise(r => setTimeout(r, 1300));
+    resp = await hit();
+  }
   const body = await resp.text();
   return new Response(body, {
     status: resp.status,
     headers: {
       "content-type": "application/json",
-      "cache-control": "public, max-age=30",
+      "cache-control": resp.ok ? "public, max-age=30" : "no-store",
       "access-control-allow-origin": "*"
     }
   });
