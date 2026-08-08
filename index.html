@@ -380,7 +380,7 @@ function lockAnswer(){
   var q=Q[cur], you=parseInt(document.getElementById("slider").value,10);
   answers.push({you:you, mkt:q.market, label:q.label, settle:q.settle});
   document.getElementById("qCard").className="card hidden";
-  var d=you-q.mkt, ad=Math.abs(d);
+  var d=you-q.market, ad=Math.abs(d);
   document.getElementById("barYou").style.width="0%";
   document.getElementById("barMkt").style.width="0%";
   document.getElementById("valYou").textContent=you+"%";
