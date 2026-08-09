@@ -205,7 +205,18 @@ async function rollupYesterday(env) {
 }
 
 // ---------- daily editorial (10:00 UTC tick = 6 AM ET) ----------
+// Template: 2 fast (rotating-city temperature + Bitcoin 5 PM ET) / 1 macro print (CPI)
+// / 1 weeks-out event (sooner of WTI strike, Fed leg) / 1 long fuse (farthest Fed hold).
 const MONTHS = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+const CITY_ROTATION = [
+  ["KXHIGHDEN", "Denver"],        // Sun
+  ["KXHIGHTPHX", "Phoenix"],      // Mon
+  ["KXHIGHTBOS", "Boston"],       // Tue
+  ["KXHIGHHOU", "Houston"],       // Wed
+  ["KXHIGHPHIL", "Philadelphia"], // Thu
+  ["KXHIGHTSATX", "San Antonio"], // Fri
+  ["KXHIGHTOKC", "Oklahoma City"] // Sat
+];
 
 function pickClosest(markets, target, lo, hi, excluded) {
   let best = null, bestDist = 1e9;
@@ -222,6 +233,9 @@ function pickClosest(markets, target, lo, hi, excluded) {
 function seriesUrl(ticker) {
   return "https://kalshi.com/markets/" + String(ticker).split("-")[0].toLowerCase();
 }
+function etDow(dateStr) {
+  return new Date(dateStr + "T12:00:00Z").getUTCDay();
+}
 
 async function buildDailyEdition(env) {
   const today = etDate(new Date());
@@ -232,23 +246,42 @@ async function buildDailyEdition(env) {
     ((await env.DB.prepare("SELECT ticker FROM questions WHERE status = 'open'").all()).results || [])
       .map(r => r.ticker)
   );
+  const [y, mo, dd] = today.split("-");
+  const dstamp = y.slice(2) + MONTHS[parseInt(mo, 10) - 1] + dd;
   const picks = [];
 
-  // Slot 1 - CLIMATE: today Denver high, bracket closest to even odds (settles tomorrow morning)
+  // Slot 1 - CLIMATE (fast): rotating city daily high, bracket closest to even odds
   try {
-    const [y, mo, dd] = today.split("-");
-    const ev = "KXHIGHDEN-" + y.slice(2) + MONTHS[parseInt(mo, 10) - 1] + dd;
-    const ms = await kalshiMarkets(env, "event_ticker=" + ev + "&limit=100");
+    const dow = etDow(today);
+    for (let k = 0; k < 7; k++) {
+      const [series, city] = CITY_ROTATION[(dow + k) % 7];
+      const ms = await kalshiMarkets(env, "event_ticker=" + series + "-" + dstamp + "&limit=100");
+      const p = pickClosest(ms, 50, 10, 90, openTickers);
+      if (p) {
+        picks.push({
+          cat: "CLIMATE · TODAY", domain: "climate",
+          text: city + " tops out at " + (p.m.yes_sub_title || p.m.subtitle || "the posted bracket") + " today?",
+          ctx: "Settles on the National Weather Service report - tomorrow morning brings the verdict.",
+          m: p
+        });
+        break;
+      }
+    }
+  } catch (e) { /* skip slot */ }
+
+  // Slot 2 - MARKETS (fast): Bitcoin at the 5 PM ET check, bracket closest to even odds
+  try {
+    const ms = await kalshiMarkets(env, "event_ticker=KXBTCD-" + dstamp + "17&limit=100");
     const p = pickClosest(ms, 50, 10, 90, openTickers);
     if (p) picks.push({
-      cat: "CLIMATE · TODAY", domain: "climate",
-      text: "Denver tops out at " + (p.m.yes_sub_title || p.m.subtitle || "the posted bracket") + " today?",
-      ctx: "Settles on the National Weather Service report - tomorrow morning brings the verdict.",
+      cat: "MARKETS · TODAY", domain: "crypto",
+      text: "Bitcoin at 5 PM ET today: " + (p.m.yes_sub_title || p.m.subtitle || "the posted band") + "?",
+      ctx: "Pure market noise, settled tonight - a lesson in humility. Graded off the CF Benchmarks index.",
       m: p
     });
   } catch (e) { /* skip slot */ }
 
-  // Slot 2 - INFLATION: nearest open CPI print, strike closest to even odds
+  // Slot 3 - MACRO PRINT: nearest open CPI event, strike closest to even odds
   try {
     const ms = await kalshiMarkets(env, "series_ticker=KXCPI&status=open&limit=100");
     ms.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
@@ -260,29 +293,27 @@ async function buildDailyEdition(env) {
     });
   } catch (e) { /* skip slot */ }
 
-  // Slot 3 - THE FED: nearest meeting, most contested leg
+  // Slot 4 - THE EVENT (weeks out): sooner of live WTI strike and nearest Fed leg
   try {
-    const ms = await kalshiMarkets(env, "series_ticker=KXFEDDECISION&status=open&limit=100");
-    const future = ms.filter(m => new Date(m.close_time) > new Date(Date.now() + 86400000));
-    future.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
-    const nearest = future.filter(m => m.event_ticker === (future[0] && future[0].event_ticker));
-    const p = pickClosest(nearest, 50, 12, 88, openTickers);
-    if (p) picks.push({
-      cat: "ECONOMICS · THE FED", domain: "econ",
-      text: p.m.title, ctx: "FOMC decision day settles it.", m: p
-    });
-  } catch (e) { /* skip slot */ }
+    let wti = null, fed = null;
+    const wms = await kalshiMarkets(env, "series_ticker=KXWTIMAX&status=open&limit=100");
+    wms.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
+    const wNear = wms.filter(m => m.event_ticker === (wms[0] && wms[0].event_ticker));
+    wti = pickClosest(wNear, 20, 4, 60, openTickers);
 
-  // Slot 4 - ENERGY: current WTI max event, live tail strike
-  try {
-    const ms = await kalshiMarkets(env, "series_ticker=KXWTIMAX&status=open&limit=100");
-    ms.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
-    const nearest = ms.filter(m => m.event_ticker === (ms[0] && ms[0].event_ticker));
-    const p = pickClosest(nearest, 20, 4, 60, openTickers);
-    if (p) picks.push({
-      cat: "ENERGY", domain: "energy",
-      text: p.m.title, ctx: "Any daily settle above the strike ends it early.", m: p
-    });
+    const fms = await kalshiMarkets(env, "series_ticker=KXFEDDECISION&status=open&limit=100");
+    const future = fms.filter(m => new Date(m.close_time) > new Date(Date.now() + 86400000));
+    future.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
+    const fNear = future.filter(m => m.event_ticker === (future[0] && future[0].event_ticker));
+    fed = pickClosest(fNear, 50, 12, 88, openTickers);
+
+    let p = null, cat = "", dom = "", ctx = "";
+    if (wti && (!fed || new Date(wti.m.close_time) <= new Date(fed.m.close_time))) {
+      p = wti; cat = "ENERGY"; dom = "energy"; ctx = "Any daily settle above the strike ends it early.";
+    } else if (fed) {
+      p = fed; cat = "ECONOMICS · THE FED"; dom = "econ"; ctx = "FOMC decision day settles it.";
+    }
+    if (p) picks.push({ cat: cat, domain: dom, text: p.m.title, ctx: ctx, m: p });
   } catch (e) { /* skip slot */ }
 
   // Slot 5 - THE LONG GAME: farthest Fed meeting, hold leg preferred
@@ -298,7 +329,7 @@ async function buildDailyEdition(env) {
     });
   } catch (e) { /* skip slot */ }
 
-  if (picks.length < 3) return -1; // not enough material; leave yesterday's edition standing
+  if (picks.length < 3) return -1; // not enough material; leave yesterday standing
 
   const prev = await env.DB.prepare("SELECT COALESCE(MAX(id), 0) AS m FROM editions").first();
   const num = (prev.m || 0) + 1;
