@@ -1,9 +1,11 @@
-// Predicta settlement worker (cron, hourly at :15).
-// 1) Finds open questions past close_time, checks Kalshi for settlement.
-// 2) Grades every forecast: Brier vs the market-at-lock baseline. edge = market_brier - brier.
-// 3) Updates calibration buckets and skill_status (the Edge-protocol ledger).
-// 4) On the 16:15 UTC run, computes yesterday's daily_metrics rollups.
-// Self-contained: duplicates the small Kalshi client (Workers can't import from Pages functions).
+// Predicta worker: settlement (hourly at :15) + daily editorial (10:00 UTC = 6 AM ET).
+// Settlement: finds open questions past close_time, checks Kalshi, grades every forecast
+// (Brier vs market-at-lock; edge = market_brier - brier), updates calibration buckets and
+// the Edge-protocol ledger (skill_status), and computes prior-day rollups at 16:15 UTC.
+// Editorial: composes and PUBLISHES the daily edition from live Kalshi candidates by rule:
+// closest-to-even daily weather bracket, open CPI print, nearest Fed meeting leg, live WTI
+// strike, long-fuse Fed hold. Skips tickers still open from prior editions. Auto-publish.
+// Self-contained: duplicates the small Kalshi client (Workers cannot import Pages functions).
 
 const API_HOST = "https://api.elections.kalshi.com";
 
@@ -62,6 +64,11 @@ async function kalshiGet(env, path, query) {
   }
   return resp;
 }
+async function kalshiMarkets(env, query) {
+  const r = await kalshiGet(env, "/trade-api/v2/markets", query);
+  if (!r.ok) return [];
+  return (await r.json()).markets || [];
+}
 function midCents(m) {
   const b = parseFloat(m.yes_bid_dollars || "0");
   const a = parseFloat(m.yes_ask_dollars || "0");
@@ -80,29 +87,24 @@ async function settleDueQuestions(env) {
   ).all()).results || [];
   if (!due.length) return 0;
 
-  // fetch markets in one call (<= 40 tickers)
   const tickers = [...new Set(due.map(q => q.ticker))];
-  const r = await kalshiGet(env, "/trade-api/v2/markets", "tickers=" + tickers.join(","));
-  if (!r.ok) return 0; // try again next hour
   const markets = {};
-  for (const m of ((await r.json()).markets || [])) markets[m.ticker] = m;
+  for (const m of await kalshiMarkets(env, "tickers=" + tickers.join(","))) markets[m.ticker] = m;
 
   let settledCount = 0;
   for (const q of due) {
     const m = markets[q.ticker];
     if (!m) continue;
     const st = String(m.status || "").toLowerCase();
-    const result = String(m.result || "").toLowerCase(); // 'yes' | 'no' | '' until determined
+    const result = String(m.result || "").toLowerCase();
     if (!(result === "yes" || result === "no")) {
       if (st === "settled" || st === "finalized") {
-        // settled without binary result (voided/scalar edge case) -> void the question
         await env.DB.prepare(
           "UPDATE questions SET status='void', result='void', settled_at=datetime('now') WHERE id=?"
         ).bind(q.id).run();
       }
-      continue; // market past close but not yet settled: wait
+      continue;
     }
-
     const outcome = result === "yes" ? 1 : 0;
     await gradeQuestion(env, q, outcome, midCents(m));
     settledCount++;
@@ -125,8 +127,6 @@ async function gradeQuestion(env, q, outcome, settleCents) {
     stmts.push(env.DB.prepare(
       "UPDATE forecasts SET brier=?, market_brier=?, edge=? WHERE player_id=? AND question_id=?"
     ).bind(brier, marketBrier, edge, f.player_id, q.id));
-
-    // calibration buckets: decade midpoint (7 -> 5, 34 -> 35, 91 -> 95)
     const bucket = Math.min(95, Math.max(5, Math.floor(f.prob / 10) * 10 + 5));
     for (const dom of [q.domain, "all"]) {
       stmts.push(env.DB.prepare(
@@ -139,8 +139,6 @@ async function gradeQuestion(env, q, outcome, settleCents) {
     "UPDATE questions SET status='settled', result=?, settle_price_cents=?, settled_at=datetime('now') WHERE id=?"
   ).bind(outcome ? "yes" : "no", settleCents, q.id));
   await env.DB.batch(stmts);
-
-  // Edge-protocol ledger: recompute per affected player for this domain.
   for (const f of fs) await recomputeSkill(env, f.player_id, q.domain);
 }
 
@@ -155,7 +153,6 @@ async function recomputeSkill(env, playerId, domain) {
      WHERE f.player_id = ? AND q.domain = ? AND f.edge IS NOT NULL`
   ).bind(playerId, domain).first();
   const avg = rows.length ? rows.reduce((s, r) => s + r.edge, 0) / rows.length : null;
-  // THE TENET: qualified only with >=20 settled forecasts in-domain AND positive recent edge.
   const qualified = (nTotal.n >= 20 && avg != null && avg > 0) ? 1 : 0;
   await env.DB.prepare(
     `INSERT INTO skill_status (player_id, domain, settled_n, edge_last20_avg, qualified, updated_at)
@@ -166,14 +163,10 @@ async function recomputeSkill(env, playerId, domain) {
   ).bind(playerId, domain, nTotal.n, avg, qualified).run();
 }
 
-// ---------- daily rollups (run once per day, at the 16:15 UTC tick) ----------
+// ---------- daily rollups (16:15 UTC tick) ----------
 async function rollupYesterday(env) {
   const now = new Date();
   const yest = etDate(new Date(now.getTime() - 24 * 3600 * 1000));
-
-  // North-star: settlement-morning return rate.
-  // Denominator: players who had >=1 forecast settle on ET date `yest`.
-  // Numerator: of those, players with a results_view or page_view event on `yest` (ET).
   const metrics = [
     ["settlement_return_rate", `
       WITH settled_players AS (
@@ -211,11 +204,127 @@ async function rollupYesterday(env) {
   }
 }
 
+// ---------- daily editorial (10:00 UTC tick = 6 AM ET) ----------
+const MONTHS = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+
+function pickClosest(markets, target, lo, hi, excluded) {
+  let best = null, bestDist = 1e9;
+  for (const m of markets) {
+    if (String(m.status || "").toLowerCase() !== "active") continue;
+    if (excluded.has(m.ticker)) continue;
+    const c = midCents(m);
+    if (c == null || c < lo || c > hi) continue;
+    const d = Math.abs(c - target);
+    if (d < bestDist) { best = { m: m, mid: c }; bestDist = d; }
+  }
+  return best;
+}
+function seriesUrl(ticker) {
+  return "https://kalshi.com/markets/" + String(ticker).split("-")[0].toLowerCase();
+}
+
+async function buildDailyEdition(env) {
+  const today = etDate(new Date());
+  const exists = await env.DB.prepare("SELECT id FROM editions WHERE date = ?").bind(today).first();
+  if (exists) return 0;
+
+  const openTickers = new Set(
+    ((await env.DB.prepare("SELECT ticker FROM questions WHERE status = 'open'").all()).results || [])
+      .map(r => r.ticker)
+  );
+  const picks = [];
+
+  // Slot 1 - CLIMATE: today Denver high, bracket closest to even odds (settles tomorrow morning)
+  try {
+    const [y, mo, dd] = today.split("-");
+    const ev = "KXHIGHDEN-" + y.slice(2) + MONTHS[parseInt(mo, 10) - 1] + dd;
+    const ms = await kalshiMarkets(env, "event_ticker=" + ev + "&limit=100");
+    const p = pickClosest(ms, 50, 10, 90, openTickers);
+    if (p) picks.push({
+      cat: "CLIMATE · TODAY", domain: "climate",
+      text: "Denver tops out at " + (p.m.yes_sub_title || p.m.subtitle || "the posted bracket") + " today?",
+      ctx: "Settles on the National Weather Service report - tomorrow morning brings the verdict.",
+      m: p
+    });
+  } catch (e) { /* skip slot */ }
+
+  // Slot 2 - INFLATION: nearest open CPI print, strike closest to even odds
+  try {
+    const ms = await kalshiMarkets(env, "series_ticker=KXCPI&status=open&limit=100");
+    ms.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
+    const nearest = ms.filter(m => m.event_ticker === (ms[0] && ms[0].event_ticker));
+    const p = pickClosest(nearest, 50, 8, 92, openTickers);
+    if (p) picks.push({
+      cat: "ECONOMICS · INFLATION", domain: "econ",
+      text: p.m.title, ctx: "The BLS print settles it - one number, one morning.", m: p
+    });
+  } catch (e) { /* skip slot */ }
+
+  // Slot 3 - THE FED: nearest meeting, most contested leg
+  try {
+    const ms = await kalshiMarkets(env, "series_ticker=KXFEDDECISION&status=open&limit=100");
+    const future = ms.filter(m => new Date(m.close_time) > new Date(Date.now() + 86400000));
+    future.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
+    const nearest = future.filter(m => m.event_ticker === (future[0] && future[0].event_ticker));
+    const p = pickClosest(nearest, 50, 12, 88, openTickers);
+    if (p) picks.push({
+      cat: "ECONOMICS · THE FED", domain: "econ",
+      text: p.m.title, ctx: "FOMC decision day settles it.", m: p
+    });
+  } catch (e) { /* skip slot */ }
+
+  // Slot 4 - ENERGY: current WTI max event, live tail strike
+  try {
+    const ms = await kalshiMarkets(env, "series_ticker=KXWTIMAX&status=open&limit=100");
+    ms.sort((a, b) => new Date(a.close_time) - new Date(b.close_time));
+    const nearest = ms.filter(m => m.event_ticker === (ms[0] && ms[0].event_ticker));
+    const p = pickClosest(nearest, 20, 4, 60, openTickers);
+    if (p) picks.push({
+      cat: "ENERGY", domain: "energy",
+      text: p.m.title, ctx: "Any daily settle above the strike ends it early.", m: p
+    });
+  } catch (e) { /* skip slot */ }
+
+  // Slot 5 - THE LONG GAME: farthest Fed meeting, hold leg preferred
+  try {
+    const ms = await kalshiMarkets(env, "series_ticker=KXFEDDECISION&status=open&limit=100");
+    ms.sort((a, b) => new Date(b.close_time) - new Date(a.close_time));
+    const farthest = ms.filter(m => m.event_ticker === (ms[0] && ms[0].event_ticker));
+    const hold = farthest.filter(m => /-H0$/.test(m.ticker));
+    const p = pickClosest(hold.length ? hold : farthest, 50, 5, 95, openTickers);
+    if (p && !picks.some(x => x.m.m.ticker === p.m.ticker)) picks.push({
+      cat: "THE LONG GAME", domain: "econ",
+      text: p.m.title, ctx: "Settles far out - the slow half of your calibration curve.", m: p
+    });
+  } catch (e) { /* skip slot */ }
+
+  if (picks.length < 3) return -1; // not enough material; leave yesterday's edition standing
+
+  const prev = await env.DB.prepare("SELECT COALESCE(MAX(id), 0) AS m FROM editions").first();
+  const num = (prev.m || 0) + 1;
+  const stmts = [env.DB.prepare(
+    "INSERT INTO editions (id, date, status) VALUES (?, ?, 'published')"
+  ).bind(num, today)];
+  picks.forEach((p, i) => {
+    stmts.push(env.DB.prepare(
+      `INSERT INTO questions (edition_id, slot, category, domain, text, context, ticker, market_url, lock_price_cents, close_time)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(num, i + 1, p.cat, p.domain, p.text, p.ctx, p.m.m.ticker, seriesUrl(p.m.m.ticker), p.m.mid, p.m.m.close_time));
+  });
+  await env.DB.batch(stmts);
+  return num;
+}
+
 export default {
   async scheduled(event, env, ctx) {
+    if (event.cron === "0 10 * * *") {
+      const built = await buildDailyEdition(env);
+      console.log(`predicta-editorial: edition=${built}`);
+      return;
+    }
     const settled = await settleDueQuestions(env);
     const hourUTC = new Date().getUTCHours();
-    if (hourUTC === 16) await rollupYesterday(env); // 12:15 ET, after the settlement morning
+    if (hourUTC === 16) await rollupYesterday(env);
     console.log(`predicta-settle: settled=${settled} rollup=${hourUTC === 16}`);
   }
 };
