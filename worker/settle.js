@@ -348,14 +348,14 @@ async function buildDailyEdition(env) {
 
 export default {
   async scheduled(event, env, ctx) {
-    if (event.cron === "0 10 * * *") {
-      const built = await buildDailyEdition(env);
-      console.log(`predicta-editorial: edition=${built}`);
-      return;
-    }
-    const settled = await settleDueQuestions(env);
+    // Self-healing editorial: from 10:00 UTC (6 AM EDT) onward, EVERY run ensures
+    // today's edition exists (buildDailyEdition is idempotent via the date check),
+    // so no single cron misfire can leave a morning without questions.
+    let edition = null;
     const hourUTC = new Date().getUTCHours();
+    if (hourUTC >= 10) edition = await buildDailyEdition(env);
+    const settled = await settleDueQuestions(env);
     if (hourUTC === 16) await rollupYesterday(env);
-    console.log(`predicta-settle: settled=${settled} rollup=${hourUTC === 16}`);
+    console.log(`predicta: edition=${edition} settled=${settled} rollup=${hourUTC === 16}`);
   }
 };
