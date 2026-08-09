@@ -273,6 +273,8 @@
   <div class="card">
     <div class="kicker grey">House rules &amp; where the numbers come from</div>
     <p class="ctx">Predicta is stake-free: no deposits, no prizes for predictions, nothing to buy. Prices come from Kalshi’s public market data via our own service, shown as the midpoint of the best bid and ask. Your forecasts are stored under a <b>random anonymous ID</b> created by your browser — no account, no name, no email. We collect anonymous gameplay analytics (which screens are used, when forecasts lock) with no cookies, no IP addresses kept, and nothing sold to anyone. None of this is investment advice; any trading anyone chooses to do happens on a regulated exchange, as an adult, at their own risk.</p>
+    <p class="ctx" style="margin-top:8px">Your forecaster ID in this browser is <b class="num" id="devIdHelp">—</b>. The ID — and the record attached to it — lives only where it was created: playing from another phone or browser starts a <b>separate record under a different ID</b>. Keep playing where you started if you want one unbroken track record; a way to claim and merge records under one name is planned alongside the leaderboards.</p>
+    <p class="ctx" style="margin-top:8px">Questions, bugs, ideas: <a href="mailto:support@predicta.game">support@predicta.game</a></p>
     <button class="btn ghost" onclick="showView('dc')" style="margin-top:14px">Back to today’s edition →</button>
   </div>
 
@@ -281,6 +283,7 @@
 <footer>
   <p><b>Predicta v0.1</b> — live editions, real settlement grading. Every question maps to a live Kalshi market; prices are bid/ask midpoints fetched at load and re-checked at the moment you lock. Your record is stored under an anonymous random ID in this browser. Anonymous gameplay analytics; no cookies; no IP addresses kept.</p>
   <p style="margin-top:8px">A puzzle about judgment, not investment advice. Trading happens elsewhere, by adults, at their own risk. · <b>predicta.game</b></p>
+  <p style="margin-top:8px" class="num">Forecaster ID (this browser): <span id="devIdFoot">—</span> · another device or browser plays under a different ID. · Copyright © 2026 Graziano Labs Corp. All rights reserved.</p>
 </footer>
 
 </div>
@@ -295,6 +298,11 @@ try {
   if (!DEV) { DEV = crypto.randomUUID(); localStorage.setItem("predicta_device", DEV); }
 } catch (e) { DEV = (crypto.randomUUID ? crypto.randomUUID() : "anon-" + Date.now()); }
 SES = crypto.randomUUID ? crypto.randomUUID() : "s-" + Date.now();
+try {
+  var __short = String(DEV).slice(0, 8) + "…";
+  var __f = document.getElementById("devIdFoot"); if (__f) __f.textContent = __short;
+  var __h = document.getElementById("devIdHelp"); if (__h) __h.textContent = __short;
+} catch (e) { /* cosmetic only */ }
 
 function track(name, props) {
   try {
