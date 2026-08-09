@@ -19,7 +19,7 @@ export async function onRequestGet({ env, request }) {
   ).bind(device).all()).results || [];
 
   const pending = (await env.DB.prepare(
-    `SELECT q.text, q.category, q.close_time, f.prob, f.market_cents_at_lock, f.locked_at
+    `SELECT f.question_id, q.text, q.category, q.close_time, f.prob, f.market_cents_at_lock, f.locked_at
      FROM forecasts f JOIN questions q ON q.id = f.question_id
      WHERE f.player_id = ? AND q.status = 'open'
      ORDER BY q.close_time ASC`
