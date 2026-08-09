@@ -4,10 +4,9 @@
 import { marketsByTickers, midCents, etDate, json } from "../_lib/kalshi.js";
 
 export async function onRequestGet({ env }) {
-  const today = etDate();
   const ed = await env.DB.prepare(
-    "SELECT id, date FROM editions WHERE date = ? AND status = 'published'"
-  ).bind(today).first();
+    "SELECT id, date FROM editions WHERE status = 'published' ORDER BY date DESC LIMIT 1"
+  ).first();
   if (!ed) return json({ edition: null, questions: [] });
 
   const qs = (await env.DB.prepare(
