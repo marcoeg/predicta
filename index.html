@@ -370,9 +370,12 @@ function shortLabel(text) {
 function settleLabel(iso) {
   try {
     var d = new Date(iso), now = new Date();
-    var opts = { timeZone: "America/New_York" };
     var days = (d - now) / 86400000;
-    if (days < 2) return d.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+    var hourET = parseInt(d.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/New_York" }), 10);
+    if (days < 2.5) {
+      var wd = d.toLocaleDateString("en-US", { weekday: "long", timeZone: "America/New_York" });
+      return hourET < 9 ? wd + " morning" : wd;
+    }
     if (days < 300) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
   } catch (e) { return iso; }
@@ -420,7 +423,7 @@ function startDC() {
 }
 function advanceToUnlocked() {
   while (cur < Q.length && lockedIds[Q[cur].id] != null) {
-    answers.push({ you: lockedIds[Q[cur].id], mkt: Q[cur].market, label: Q[cur].label, settle: settleLabel(Q[cur].close), prelocked: true });
+    answers.push({ you: lockedIds[Q[cur].id], mkt: Q[cur].market, label: Q[cur].label, settle: settleLabel(Q[cur].close), close: Q[cur].close, prelocked: true });
     cur++;
   }
   if (cur < Q.length) renderQ(); else showSummary();
@@ -456,7 +459,7 @@ async function lockAnswer() {
   } catch (e) { /* offline: reveal against load-time market, unsaved */ }
   track("q_lock", { question_id: q.id, prob: you, market_cents: market });
   lockedIds[q.id] = you;
-  answers.push({ you: you, mkt: market, label: q.label, settle: settleLabel(q.close) });
+  answers.push({ you: you, mkt: market, label: q.label, settle: settleLabel(q.close), close: q.close });
   document.getElementById("qCard").className = "card hidden";
   var d = you - market, ad = Math.abs(d);
   document.getElementById("barYou").style.width = "0%";
@@ -496,7 +499,7 @@ function nextQuestion() {
 function replayFromPending() {
   cur = 0; answers = [];
   Q.forEach(function (q) {
-    answers.push({ you: lockedIds[q.id], mkt: q.market, label: q.label, settle: settleLabel(q.close), prelocked: true });
+    answers.push({ you: lockedIds[q.id], mkt: q.market, label: q.label, settle: settleLabel(q.close), close: q.close, prelocked: true });
   });
   document.getElementById("introCard").className = "card hidden";
   showSummary();
@@ -521,7 +524,8 @@ function showSummary() {
     (avg >= 12 ? "A bold edition — you are betting your judgment against the crowd’s." :
      avg >= 5 ? "Selective disagreement — the calibrated player’s signature." :
      "You shadowed the market closely. Remember: matching the crowd banks zero edge.");
-  document.getElementById("schedule").innerHTML = answers.map(function (a) {
+  var chron = answers.slice().sort(function (a, b) { return new Date(a.close) - new Date(b.close); });
+  document.getElementById("schedule").innerHTML = chron.map(function (a) {
     return "<b>" + a.settle + "</b> — " + a.label;
   }).join(" &nbsp;·&nbsp; ");
   drawCurve();
@@ -532,7 +536,7 @@ function showSummary() {
   }).join(" ");
   document.getElementById("shareDC").textContent =
     "PREDICTA №" + (ED ? ED.number : "?") + " — " + answers.length + " locked\nyou vs market: " + arrows + "\navg deviation: " + avg +
-    "\nanswer key: " + answers.map(function (a) { return a.settle; }).filter(function (v, i, s) { return s.indexOf(v) === i; }).join(" · ") +
+    "\nanswer key: " + chron.map(function (a) { return a.settle; }).filter(function (v, i, s) { return s.indexOf(v) === i; }).join(" · ") +
     "\npredicta.game";
 }
 
