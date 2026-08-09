@@ -1,0 +1,19 @@
+# Predicta settlement worker — deployed via Workers Builds from marcoeg/predicta (root dir: worker/).
+# Cron + D1 binding are config-as-code here. Secrets (KALSHI_KEY_ID, KALSHI_PRIVATE_KEY)
+# are set in the dashboard by Marco and persist across deploys — never in this file.
+
+name = "predicta-settle"
+main = "settle.js"
+compatibility_date = "2026-08-01"
+
+[observability]
+enabled = true
+
+[triggers]
+# Hourly at :15. The 16:15 UTC run also computes prior-day daily_metrics rollups.
+crons = ["15 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "predicta-db"
+database_id = "5305b00a-0dcd-4aa1-b138-df03c233ec81"
