@@ -17,3 +17,5 @@ crons = ["15 * * * *"]
 binding = "DB"
 database_name = "predicta-db"
 database_id = "5305b00a-0dcd-4aa1-b138-df03c233ec81"
+
+# build 2026-08-09 v0.1.0 initial worker deploy
