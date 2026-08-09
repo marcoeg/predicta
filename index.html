@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Predicta — The Daily Calibration · №1</title>
+<title>Predicta — The Daily Calibration</title>
 <style>
   :root{
     --bg:#f6f3ec; --card:#fffdf8; --ink:#201f1a; --sub:#6f6a5e; --line:#e5dfd2;
@@ -16,7 +16,6 @@
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     line-height:1.5; padding:0 16px 80px;
   }
-  .serif{font-family:Charter,"Iowan Old Style","Palatino Linotype",Georgia,serif}
   .num{font-variant-numeric:tabular-nums}
   .wrap{max-width:620px; margin:0 auto}
   a{color:var(--market)}
@@ -37,6 +36,7 @@
   .kicker{font-size:11px; font-weight:800; letter-spacing:1.2px; color:var(--accent); text-transform:uppercase; margin-bottom:8px}
   .kicker.blue{color:var(--market)}
   .kicker.grey{color:var(--sub)}
+  .kicker.green{color:var(--good)}
   .qtext{font-family:Charter,Georgia,serif; font-size:22px; line-height:1.3; margin-bottom:8px}
   .ctx{color:var(--sub); font-size:14px}
   .finequiet{color:var(--sub); font-size:12px; margin-top:10px}
@@ -56,6 +56,7 @@
 
   .btn{display:block; width:100%; padding:13px; margin-top:16px; background:var(--ink); color:var(--card); border:none; border-radius:9px; font-size:15px; font-weight:700; letter-spacing:.6px; cursor:pointer}
   .btn:active{transform:translateY(1px)}
+  .btn[disabled]{opacity:.5; cursor:wait}
   .btn.ghost{background:transparent; color:var(--ink); border:1.5px solid var(--ink)}
   .btn.small{width:auto; padding:8px 18px; display:inline-block; font-size:13px; margin-top:10px}
 
@@ -81,6 +82,7 @@
   table.sum th{font-size:10.5px; letter-spacing:1px; color:var(--sub); text-transform:uppercase}
   .pos{color:var(--accent); font-weight:700}
   .neg{color:var(--market); font-weight:700}
+  .win{color:var(--good); font-weight:700}
 
   pre.share{background:var(--ink); color:#f1eee6; border-radius:10px; padding:16px; font-size:13px; line-height:1.55; overflow-x:auto; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .copied{color:var(--good); font-size:12.5px; font-weight:700; margin-left:10px; opacity:0; transition:opacity .3s}
@@ -104,7 +106,7 @@
 <header>
   <div class="brandrow">
     <div class="brand">PREDICTA<span>.</span></div>
-    <div class="edition num">№ 1 · Saturday, August 8, 2026<br><span class="badge" id="dataBadge">SNAPSHOT · AUG 8, 11:00 ET</span></div>
+    <div class="edition num" id="edHead">loading…<br><span class="badge" id="dataBadge">CONNECTING</span></div>
   </div>
 </header>
 
@@ -117,12 +119,18 @@
 <!-- ==================== DAILY CALIBRATION ==================== -->
 <div id="view-dc">
 
+  <div class="card hidden" id="sleptCard">
+    <div class="kicker green">While you were away · the answer key arrived</div>
+    <table class="sum num" id="sleptTable"></table>
+    <p class="finequiet" id="sleptTotals"></p>
+  </div>
+
   <div class="card" id="introCard">
-    <div class="kicker grey">Edition № 1 · How this works</div>
+    <div class="kicker grey" id="introKick">How this works</div>
     <div class="qtext">Five questions about the near future. You answer in probabilities.</div>
     <p class="ctx">Set your odds <b>before</b> seeing what the market believes. Each question is a real, CFTC-regulated event contract trading on Kalshi right now — with real money behind the price. When each one settles, reality grades you both.</p>
     <p class="finequiet">Copying the market scores zero by definition. You only earn edge where you disagree — and turn out right.</p>
-    <button class="btn" onclick="startDC()">Begin — question 1 of 5</button>
+    <button class="btn" id="beginBtn" onclick="startDC()" disabled>Loading today’s edition…</button>
   </div>
 
   <div id="playArea" class="hidden">
@@ -137,7 +145,7 @@
         <input type="range" min="1" max="99" value="50" id="slider" oninput="document.getElementById('pctRead').textContent=this.value">
         <div class="slidehint"><span>Almost certainly not</span><span>Coin flip</span><span>Almost certainly</span></div>
       </div>
-      <button class="btn" onclick="lockAnswer()">LOCK IT IN</button>
+      <button class="btn" id="lockBtn" onclick="lockAnswer()">LOCK IT IN</button>
       <p class="finequiet">The market’s current price is hidden until you commit.</p>
     </div>
 
@@ -149,7 +157,7 @@
       </div>
       <div class="delta" id="deltaLine"></div>
       <div class="meta">
-        <span id="mSettle"></span><span id="mVol"></span><span id="mSrc"></span>
+        <span id="mSettle"></span><span id="mSrc"></span>
       </div>
       <div id="nudgeSlot"></div>
       <button class="btn ghost" id="nextBtn" onclick="nextQuestion()">Next question →</button>
@@ -158,32 +166,35 @@
 
   <div id="summaryArea" class="hidden">
     <div class="card">
-      <div class="kicker">Locked · Edition № 1</div>
-      <div class="qtext">Five forecasts. Now reality does the grading.</div>
-      <table class="sum num" id="sumTable">
-        <tr><th>Question</th><th>You</th><th>Market</th><th>Δ</th><th>Settles</th></tr>
-      </table>
+      <div class="kicker" id="sumKick">Locked</div>
+      <div class="qtext">Forecasts locked. Now reality does the grading.</div>
+      <table class="sum num" id="sumTable"></table>
       <p class="finequiet" id="boldness"></p>
     </div>
 
     <div class="card">
       <div class="kicker blue">Your answer key arrives</div>
       <p class="ctx num" id="schedule"></p>
-      <p class="finequiet">Each settlement updates your calibration curve. That curve — not any single call — is the score that matters.</p>
+      <p class="finequiet">Each settlement updates your calibration curve. Come back tomorrow morning — the verdicts arrive while you sleep.</p>
     </div>
 
     <div class="card">
-      <div class="kicker grey">Calibration curve <span class="badge">SAMPLE — WEEK 4 PREVIEW</span></div>
+      <div class="kicker grey">Calibration curve <span class="badge" id="curveBadge">SAMPLE PREVIEW</span></div>
       <div id="curveSlot"></div>
-      <p class="finequiet">After a few weeks this is drawn from your own settled forecasts: when you say 80%, how often does it happen? Perfect calibration hugs the diagonal. This preview shows a typical new player — sharp at the extremes, overconfident in the 70s.</p>
+      <p class="finequiet" id="curveNote">Once your forecasts settle, this is drawn from your own record: when you say 80%, how often does it happen? Perfect calibration hugs the diagonal.</p>
     </div>
 
     <div class="card">
       <div class="kicker">Share it</div>
       <pre class="share num" id="shareDC"></pre>
       <button class="btn small" onclick="copyShare('shareDC','cp1')">Copy</button><span class="copied" id="cp1">Copied.</span>
-      <button class="btn small ghost" onclick="location.reload()" style="margin-left:8px">Replay demo</button>
     </div>
+  </div>
+
+  <div class="card hidden" id="noEdition">
+    <div class="kicker grey">Between editions</div>
+    <div class="qtext">No edition is live right now.</div>
+    <p class="ctx">The next set of questions arrives with the morning. Priced In is still open, and your pending forecasts are safe — reality is working on them.</p>
   </div>
 
 </div>
@@ -208,7 +219,7 @@
       <input type="range" min="1" max="99" value="25" id="piSlider" oninput="document.getElementById('piRead').textContent=this.value">
       <div class="slidehint"><span>Collapsed further</span><span>Unchanged ≈11¢</span><span>Fees change everything</span></div>
     </div>
-    <p class="ctx">Two days of official confirmation and fee outrage later — <b>where does it trade now</b>, Saturday 11 AM ET?</p>
+    <p class="ctx">Days of official confirmation and fee outrage later — <b>where does it trade now?</b></p>
     <button class="btn" onclick="lockPI()">LOCK IT IN</button>
   </div>
 
@@ -218,7 +229,7 @@
     <div class="delta" id="piActual"></div>
     <div class="delta" id="piVerdict" style="font-size:15px; color:var(--sub)"></div>
     <div class="lesson" id="piLesson"></div>
-    <div class="meta"><span>Settles Aug 31 (or on touch)</span><span id="piSrc" class="num">KXWTIMAX-26AUG31-T95.00 · <a href="https://kalshi.com/markets/kxwtimax" target="_blank" rel="noopener">open on Kalshi ↗</a></span></div>
+    <div class="meta"><span>Settles Aug 31 (or on touch)</span><span class="num">KXWTIMAX-26AUG31-T95.00 · <a href="https://kalshi.com/markets/kxwtimax" target="_blank" rel="noopener">open on Kalshi ↗</a></span></div>
     <pre class="share num" id="sharePI" style="margin-top:14px"></pre>
     <button class="btn small" onclick="copyShare('sharePI','cp2')">Copy</button><span class="copied" id="cp2">Copied.</span>
   </div>
@@ -239,38 +250,37 @@
     <div class="kicker">Puzzle 1 · The Daily Calibration</div>
     <p class="ctx"><b>Play:</b> five questions each morning. For each, drag the slider to <i>your</i> probability — not yes or no, but how confident — and lock it. Only then does the market’s price appear.</p>
     <p class="ctx" style="margin-top:8px"><b>The gap is the game.</b> Lock 30% on a hurricane question the market prices at 22¢ and you’ve staked an 8-point disagreement on the YES side. If the storm comes, that gap banks in your favor at settlement; if not, it counts against you. Match the market and nothing is staked — which is why looking up the price first is pointless, not forbidden: <b>copying the crowd scores zero by definition.</b></p>
-    <p class="ctx" style="margin-top:8px"><b>Scoring, plainly:</b> when a question settles, both you and the market are graded with a proper score — your probability versus what actually happened (say 80% on a thing that happens, you score well; say 80% on a thing that doesn’t, it stings proportionally). Your running result is always shown <i>relative to the market’s</i>. Beating a real-money crowd, even slightly, over dozens of settlements — that’s the badge.</p>
+    <p class="ctx" style="margin-top:8px"><b>Scoring, plainly:</b> when a question settles, both you and the market are graded with a proper score — your probability versus what actually happened. Your running result is always shown <i>relative to the market’s</i>. Beating a real-money crowd, even slightly, over dozens of settlements — that’s the badge.</p>
     <p class="ctx" style="margin-top:8px"><b>The calibration curve</b> is the deeper mirror: across all your settled forecasts, when you said 70%, did it happen 70% of the time? Most newcomers discover a dip in their 70s — confident claims that land barely better than coin flips. Watching that dip flatten over weeks is the real progress bar.</p>
   </div>
 
   <div class="card">
     <div class="kicker">Puzzle 2 · Priced In</div>
     <p class="ctx"><b>Play:</b> a real headline, the related market, and its price from <i>before</i> the news. You dial in where you think the price sits now, then see the actual tape. Ninety seconds, scored on direction and magnitude.</p>
-    <p class="ctx" style="margin-top:8px"><b>What it trains:</b> the most useful modern reading skill — was that “news” actually news? Markets reprice on leaks and surprises, then shrug at official confirmations. When a dramatic announcement moves the price a penny, the lesson isn’t that markets are asleep; it’s that the information arrived earlier than the headline. Announcements aren’t information. Surprises are.</p>
+    <p class="ctx" style="margin-top:8px"><b>What it trains:</b> was that “news” actually news? Markets reprice on leaks and surprises, then shrug at official confirmations. When a dramatic announcement moves the price a penny, the information arrived earlier than the headline. Announcements aren’t information. Surprises are.</p>
   </div>
 
   <div class="card">
     <div class="kicker">The answer key · when you get graded</div>
-    <p class="ctx">Questions settle on their own clocks — tomorrow’s weather on Monday morning, Tuesday’s CPI at 8:31, the Fed in September, the long game in 2028. Each edition seeds your week with verdicts-in-waiting; the morning ritual opens with whatever reality decided overnight. Streaks count editions played, not answers right: showing up to be graded is the habit that improves you.</p>
+    <p class="ctx">Questions settle on their own clocks — tonight’s weather by morning, Tuesday’s CPI at 8:31, the Fed in September, the long game in 2028. Each edition seeds your week with verdicts-in-waiting; the morning visit opens with whatever reality decided overnight. Showing up to be graded is the habit that improves you.</p>
   </div>
 
   <div class="card">
     <div class="kicker">The Edge protocol · why some panels stay locked</div>
-    <p class="ctx">Occasionally, after you lock a big disagreement with the market, a gated panel appears. In the full product it opens only for players with a <b>proven calibration record in that domain</b> — evidence, not enthusiasm. For them, it explains what acting on their edge would mean on a regulated venue, elsewhere, under that venue’s rules and protections. No record, no nudge, ever: Predicta measures judgment first and refuses to point unproven forecasters at a trading floor. Skill is demonstrated here before it is ever spent anywhere else.</p>
+    <p class="ctx">Occasionally, after you lock a big disagreement with the market, a gated panel appears. It opens only for players with a <b>proven calibration record in that domain</b> — at least 20 settled forecasts there, with a positive edge over the market across your last 20. Evidence, not enthusiasm. No record, no nudge, ever: Predicta measures judgment first and refuses to point unproven forecasters at a trading floor.</p>
   </div>
 
   <div class="card">
     <div class="kicker grey">House rules &amp; where the numbers come from</div>
-    <p class="ctx">Predicta itself is stake-free: no deposits, no prizes for predictions, nothing to buy in the game. Prices come from Kalshi’s <b>public market-data API</b> — no account or API key required; they’re shown as the midpoint of the best bid and ask, with thin books flagged. Everything in this demo runs in your browser and nothing you enter leaves the page. None of it is investment advice; any trading anyone chooses to do happens on a regulated exchange, as an adult, at their own risk.</p>
+    <p class="ctx">Predicta is stake-free: no deposits, no prizes for predictions, nothing to buy. Prices come from Kalshi’s public market data via our own service, shown as the midpoint of the best bid and ask. Your forecasts are stored under a <b>random anonymous ID</b> created by your browser — no account, no name, no email. We collect anonymous gameplay analytics (which screens are used, when forecasts lock) with no cookies, no IP addresses kept, and nothing sold to anyone. None of this is investment advice; any trading anyone chooses to do happens on a regulated exchange, as an adult, at their own risk.</p>
     <button class="btn ghost" onclick="showView('dc')" style="margin-top:14px">Back to today’s edition →</button>
   </div>
 
 </div>
 
 <footer>
-  <p><b>What’s real:</b> every question maps to a live Kalshi market; prices are the bid/ask midpoint snapshotted Sat Aug 8, 2026, 11:00 AM ET (refreshed live from the public API when this page can reach it — see badge). Tickers: KXFEDDECISION-26SEP-H25 · KXCPI-26JUL-T0.0 · KXWTIMAX-26AUG31-T95.00 · KXHIGHDEN-26AUG09 (three brackets, summed) · KXFEDDECISION-28JAN-H0. The Hormuz headline and the Wednesday repricing series are real (hourly candlesticks from the same API).</p>
-  <p style="margin-top:8px"><b>What’s simulated:</b> the calibration-curve preview, the “Edge protocol” gate (concept demonstration), and scoring copy. No accounts, no stakes, no data leaves this page.</p>
-  <p style="margin-top:8px">Predicta is a puzzle about judgment, not investment advice. Trading happens elsewhere, by adults, at their own risk. · <b>predicta.game</b> · concept demo</p>
+  <p><b>Predicta v0.1</b> — live editions, real settlement grading. Every question maps to a live Kalshi market; prices are bid/ask midpoints fetched at load and re-checked at the moment you lock. Your record is stored under an anonymous random ID in this browser. Anonymous gameplay analytics; no cookies; no IP addresses kept.</p>
+  <p style="margin-top:8px">A puzzle about judgment, not investment advice. Trading happens elsewhere, by adults, at their own risk. · <b>predicta.game</b></p>
 </footer>
 
 </div>
@@ -278,238 +288,341 @@
 <script>
 "use strict";
 
-/* ---------- snapshot data (real, Aug 8 2026 ~15:00 UTC) ---------- */
-var Q = [
-  { cat:"ECONOMICS · THE FED", market:36,
-    q:"Does the Federal Reserve raise rates at its September 16 meeting?",
-    ctx:"A 25bp hike is live on the exchange — nearly a million contracts traded on this question alone.",
-    settle:"Sep 16", settleLong:"Tuesday, Sep 16", vol:"952k contracts",
-    ticker:"KXFEDDECISION-26SEP-H25", url:"https://kalshi.com/markets/kxfeddecision",
-    label:"Fed hikes Sept", nudge:true },
-  { cat:"ECONOMICS · INFLATION", market:56,
-    q:"Tuesday’s CPI report shows July prices rose at all — above 0.0% month-over-month?",
-    ctx:"The market prices a real chance July inflation printed flat or negative. BLS releases at 8:30 AM Tuesday.",
-    settle:"Tue Aug 12", settleLong:"Tuesday morning", vol:"144k contracts",
-    ticker:"KXCPI-26JUL-T0.0", url:"https://kalshi.com/markets/kxcpi",
-    label:"July CPI > 0.0%" },
-  { cat:"ENERGY", market:10,
-    q:"WTI crude touches $95 at any daily settle before September?",
-    ctx:"The Strait of Hormuz reopening deal was announced this week. The $95 strike is still breathing.",
-    settle:"Aug 31", settleLong:"Aug 31 (or on touch)", vol:"thin book — 9/10 spread",
-    ticker:"KXWTIMAX-26AUG31-T95.00", url:"https://kalshi.com/markets/kxwtimax",
-    label:"WTI touches $95" },
-  { cat:"CLIMATE · TOMORROW", market:43,
-    q:"Denver reaches 98°F or hotter tomorrow, Sunday?",
-    ctx:"Settles Monday morning on the National Weather Service’s official climatological report. Your fastest verdict.",
-    settle:"Mon Aug 10", settleLong:"Monday morning", vol:"derived from 3 bracket markets",
-    ticker:"KXHIGHDEN-26AUG09", url:"https://kalshi.com/markets/kxhighden",
-    label:"Denver ≥ 98°", derived:true },
-  { cat:"THE LONG GAME · JAN 2028", market:66,
-    q:"Sixteen meetings from now — January 2028 — the Fed leaves its target rate unchanged at that meeting?",
-    ctx:"A question that settles seventeen months out. The slow half of your calibration curve. (Wide book: 63–70.)",
-    settle:"Jan 26, 2028", settleLong:"January 26, 2028", vol:"thin, long-dated",
-    ticker:"KXFEDDECISION-28JAN-H0", url:"https://kalshi.com/markets/kxfeddecision",
-    label:"Fed holds, Jan ’28" }
-];
+/* ---------- identity & analytics ---------- */
+var DEV = null, SES = null;
+try {
+  DEV = localStorage.getItem("predicta_device");
+  if (!DEV) { DEV = crypto.randomUUID(); localStorage.setItem("predicta_device", DEV); }
+} catch (e) { DEV = (crypto.randomUUID ? crypto.randomUUID() : "anon-" + Date.now()); }
+SES = crypto.randomUUID ? crypto.randomUUID() : "s-" + Date.now();
 
-/* Priced In — real hourly best-ask series for KXWTIMAX-26AUG31-T95.00, Aug 5→8 (¢) */
-var PI = {
-  askSeries:[98,98,97,97,89,69,42,54,81,85,85,84,82,71,20,17,16,15,15,14,14,13,12,11,10,10,10],
-  anchor:11, actual:10, bid:9, ask:10
-};
+function track(name, props) {
+  try {
+    var payload = JSON.stringify({ device_id: DEV, session_id: SES, events: [{ name: name, props: props || null }] });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("/api/track", new Blob([payload], { type: "application/json" }));
+    } else {
+      fetch("/api/track", { method: "POST", body: payload, keepalive: true, headers: { "content-type": "application/json" } });
+    }
+  } catch (e) { /* analytics never break the game */ }
+}
 
-var cur=0, answers=[], piDone=false;
+/* ---------- state ---------- */
+var ED = null;          // edition {number,date}
+var Q = [];             // questions from /api/edition
+var RESULTS = null;     // /api/results payload
+var lockedIds = {};     // question_id -> prob (pending from server)
+var cur = 0, answers = [], piDone = false;
 
-/* ---------- live refresh (graceful: keeps snapshot if blocked) ---------- */
-(function tryLive(){
-  var tickers=["KXFEDDECISION-26SEP-H25","KXCPI-26JUL-T0.0","KXWTIMAX-26AUG31-T95.00",
-               "KXHIGHDEN-26AUG09-B98.5","KXHIGHDEN-26AUG09-B100.5","KXHIGHDEN-26AUG09-T101",
-               "KXFEDDECISION-28JAN-H0"];
-  var url="https://api.elections.kalshi.com/trade-api/v2/markets?tickers="+tickers.join(",");
-  var ctl=("AbortController" in window)?new AbortController():null;
-  if(ctl) setTimeout(function(){ctl.abort();},8000);
-  fetch("/api/markets?tickers="+tickers.join(","),ctl?{signal:ctl.signal}:{}).then(function(r){if(!r.ok)throw 0;return r.json();}).catch(function(){return fetch(url,ctl?{signal:ctl.signal}:{}).then(function(r){return r.json();});}).then(function(d){
-    if(!d||!d.markets||!d.markets.length) return;
-    var mids={};
-    d.markets.forEach(function(m){
-      var b=parseFloat(m.yes_bid_dollars||"0"), a=parseFloat(m.yes_ask_dollars||"0");
-      if(a<=0&&b<=0) return;
-      var mid=(a>0&&b>0)?(a+b)/2:(a>0?a:b);
-      mids[m.ticker]=Math.round(mid*100);
+/* ---------- boot ---------- */
+(async function boot() {
+  track("page_view");
+  try {
+    var rr = await fetch("/api/results?device_id=" + encodeURIComponent(DEV));
+    if (rr.ok) RESULTS = await rr.json();
+  } catch (e) { RESULTS = null; }
+  if (RESULTS && RESULTS.pending) {
+    RESULTS.pending.forEach(function (p) { if (p.question_id) lockedIds[p.question_id] = p.prob; });
+  }
+  renderSlept();
+
+  try {
+    var re = await fetch("/api/edition");
+    var j = await re.json();
+    ED = j.edition; Q = (j.questions || []).map(function (q) {
+      return { id: q.id, cat: q.category, domain: q.domain, q: q.text, ctx: q.context || "",
+               market: q.market_cents, url: q.market_url, close: q.close_time, label: shortLabel(q.text) };
     });
-    if(mids["KXFEDDECISION-26SEP-H25"]) Q[0].market=mids["KXFEDDECISION-26SEP-H25"];
-    if(mids["KXCPI-26JUL-T0.0"])        Q[1].market=mids["KXCPI-26JUL-T0.0"];
-    if(mids["KXWTIMAX-26AUG31-T95.00"]){Q[2].market=mids["KXWTIMAX-26AUG31-T95.00"]; PI.actual=mids["KXWTIMAX-26AUG31-T95.00"];}
-    var den=(mids["KXHIGHDEN-26AUG09-B98.5"]||0)+(mids["KXHIGHDEN-26AUG09-B100.5"]||0)+(mids["KXHIGHDEN-26AUG09-T101"]||0);
-    if(den>0) Q[3].market=Math.min(99,den);
-    if(mids["KXFEDDECISION-28JAN-H0"])  Q[4].market=mids["KXFEDDECISION-28JAN-H0"];
-    var b=document.getElementById("dataBadge");
-    b.textContent="LIVE · KALSHI PUBLIC API"; b.className="badge live";
-  }).catch(function(){ /* snapshot stands */ });
+  } catch (e) { ED = null; Q = []; }
+
+  var head = document.getElementById("edHead");
+  var badge = document.getElementById("dataBadge");
+  if (ED && Q.length) {
+    head.innerHTML = "№ " + ED.number + " · " + prettyDate(ED.date) + '<br><span class="badge live" id="dataBadge">LIVE · KALSHI DATA</span>';
+    var btn = document.getElementById("beginBtn");
+    var pendingCount = Q.filter(function (q) { return lockedIds[q.id] != null; }).length;
+    if (pendingCount >= Q.length) {
+      btn.textContent = "Edition complete — see your summary →";
+      btn.onclick = function () { replayFromPending(); };
+    } else if (pendingCount > 0) {
+      btn.textContent = "Continue — " + (Q.length - pendingCount) + " question" + (Q.length - pendingCount > 1 ? "s" : "") + " left";
+      btn.onclick = function () { startDC(); };
+    }
+    btn.disabled = false;
+    document.getElementById("introKick").textContent = "Edition № " + ED.number + " · How this works";
+  } else {
+    head.innerHTML = 'predicta.game<br><span class="badge" id="dataBadge">NO LIVE EDITION</span>';
+    document.getElementById("introCard").className = "card hidden";
+    document.getElementById("noEdition").className = "card";
+  }
 })();
 
+function prettyDate(d) {
+  try {
+    var dt = new Date(d + "T12:00:00Z");
+    return dt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
+  } catch (e) { return d; }
+}
+function shortLabel(text) {
+  var t = text.replace(/[?]/g, "");
+  return t.length > 26 ? t.slice(0, 24) + "…" : t;
+}
+function settleLabel(iso) {
+  try {
+    var d = new Date(iso), now = new Date();
+    var opts = { timeZone: "America/New_York" };
+    var days = (d - now) / 86400000;
+    if (days < 2) return d.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+    if (days < 300) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
+  } catch (e) { return iso; }
+}
+
+/* ---------- while you slept ---------- */
+function renderSlept() {
+  if (!RESULTS || !RESULTS.settled || !RESULTS.settled.length) return;
+  track("results_view", { n: RESULTS.settled.length });
+  var rows = "<tr><th>Question</th><th>You</th><th>Market</th><th>Result</th><th>Edge</th></tr>";
+  RESULTS.settled.slice(0, 6).forEach(function (s) {
+    var e100 = s.edge != null ? (s.edge * 100) : null;
+    rows += "<tr><td>" + shortLabel(s.text) + "</td><td>" + s.prob + "%</td><td>" + (s.market_cents_at_lock != null ? s.market_cents_at_lock + "¢" : "—") + "</td>" +
+      '<td class="' + (s.result === "yes" ? "win" : "neg") + '">' + String(s.result || "").toUpperCase() + "</td>" +
+      '<td class="' + (e100 >= 0 ? "pos" : "neg") + '">' + (e100 != null ? (e100 >= 0 ? "+" : "") + e100.toFixed(1) : "—") + "</td></tr>";
+  });
+  document.getElementById("sleptTable").innerHTML = rows;
+  var t = RESULTS.totals || {};
+  document.getElementById("sleptTotals").textContent =
+    t.n + " settled forecast" + (t.n === 1 ? "" : "s") + " · banked edge " + ((t.edge_sum || 0) >= 0 ? "+" : "") + ((t.edge_sum || 0) * 100).toFixed(1) +
+    " · beating the market is a positive number.";
+  document.getElementById("sleptCard").className = "card";
+}
+
+/* ---------- views ---------- */
+function showView(v) {
+  document.getElementById("view-dc").className = (v === "dc") ? "" : "hidden";
+  document.getElementById("view-pi").className = (v === "pi") ? "" : "hidden";
+  document.getElementById("view-help").className = (v === "help") ? "" : "hidden";
+  document.getElementById("tabDC").className = "tab" + (v === "dc" ? " on" : "");
+  document.getElementById("tabPI").className = "tab" + (v === "pi" ? " on" : "");
+  document.getElementById("tabHELP").className = "tab" + (v === "help" ? " on" : "");
+  if (v === "pi") { drawSpark(); track("pi_view"); }
+  if (v === "help") track("help_view");
+}
+
 /* ---------- daily calibration flow ---------- */
-function showView(v){
-  document.getElementById("view-dc").className = (v==="dc")?"":"hidden";
-  document.getElementById("view-pi").className = (v==="pi")?"":"hidden";
-  document.getElementById("view-help").className = (v==="help")?"":"hidden";
-  document.getElementById("tabDC").className = "tab"+(v==="dc"?" on":"");
-  document.getElementById("tabPI").className = "tab"+(v==="pi"?" on":"");
-  document.getElementById("tabHELP").className = "tab"+(v==="help"?" on":"");
-  if(v==="pi") drawSpark();
+function startDC() {
+  track("edition_start", { edition: ED && ED.number });
+  document.getElementById("introCard").className = "card hidden";
+  document.getElementById("sleptCard").className = "card hidden";
+  document.getElementById("playArea").className = "";
+  cur = 0; answers = [];
+  advanceToUnlocked();
 }
-function startDC(){
-  document.getElementById("introCard").className="card hidden";
-  document.getElementById("playArea").className="";
-  renderQ();
-}
-function renderQ(){
-  var q=Q[cur], dots="";
-  for(var i=0;i<Q.length;i++)
-    dots+='<div class="dot'+(i<cur?" done":(i===cur?" cur":""))+'"></div>';
-  document.getElementById("dots").innerHTML=dots;
-  document.getElementById("qCat").textContent=q.cat+"  ·  question "+(cur+1)+" of 5";
-  document.getElementById("qText").textContent=q.q;
-  document.getElementById("qCtx").textContent=q.ctx;
-  document.getElementById("slider").value=50;
-  document.getElementById("pctRead").textContent="50";
-  document.getElementById("qCard").className="card";
-  document.getElementById("rCard").className="card hidden";
-}
-function lockAnswer(){
-  var q=Q[cur], you=parseInt(document.getElementById("slider").value,10);
-  answers.push({you:you, mkt:q.market, label:q.label, settle:q.settle});
-  document.getElementById("qCard").className="card hidden";
-  var d=you-q.market, ad=Math.abs(d);
-  document.getElementById("barYou").style.width="0%";
-  document.getElementById("barMkt").style.width="0%";
-  document.getElementById("valYou").textContent=you+"%";
-  document.getElementById("valMkt").textContent=q.market+"¢";
-  var line;
-  if(ad<=2) line="You and the market are eye to eye. No edge staked either way.";
-  else if(d>0) line="You are <b>"+ad+" points more confident</b> than the crowd — contrarian on the YES side.";
-  else line="You are <b>"+ad+" points more skeptical</b> than the crowd — contrarian on the NO side.";
-  line+=" If reality sides with you, that gap is your edge.";
-  document.getElementById("deltaLine").innerHTML=line;
-  document.getElementById("mSettle").textContent="Settles "+q.settleLong;
-  document.getElementById("mVol").textContent=q.vol;
-  document.getElementById("mSrc").innerHTML=q.ticker+(q.derived?" (Σ of ≥98° brackets)":"")+' · <a href="'+q.url+'" target="_blank" rel="noopener">view on Kalshi ↗</a>';
-  var slot=document.getElementById("nudgeSlot"); slot.innerHTML="";
-  if(q.nudge && ad>=10){
-    slot.innerHTML='<div class="nudge"><span class="locktag">LOCKED IN DEMO</span><div class="kicker">Edge protocol</div>'+
-    '<p>In the full product, this panel unlocks only for players with a <b>proven calibration record in Economics</b>. '+
-    'No record, no nudge: Predicta never points an unproven forecaster at a trading venue. '+
-    'With one, a '+ad+'-point disagreement backed by your curve becomes something you may choose to act on — elsewhere, with real rules.</p></div>';
+function advanceToUnlocked() {
+  while (cur < Q.length && lockedIds[Q[cur].id] != null) {
+    answers.push({ you: lockedIds[Q[cur].id], mkt: Q[cur].market, label: Q[cur].label, settle: settleLabel(Q[cur].close), prelocked: true });
+    cur++;
   }
-  document.getElementById("nextBtn").textContent = (cur===Q.length-1)?"See your edition summary →":"Next question →";
-  document.getElementById("rCard").className="card";
-  setTimeout(function(){
-    document.getElementById("barYou").style.width=you+"%";
-    document.getElementById("barMkt").style.width=q.market+"%";
-  },60);
+  if (cur < Q.length) renderQ(); else showSummary();
 }
-function nextQuestion(){
+function renderQ() {
+  var q = Q[cur], dots = "";
+  for (var i = 0; i < Q.length; i++)
+    dots += '<div class="dot' + (i < cur ? " done" : (i === cur ? " cur" : "")) + '"></div>';
+  document.getElementById("dots").innerHTML = dots;
+  document.getElementById("qCat").textContent = q.cat + "  ·  question " + (cur + 1) + " of " + Q.length;
+  document.getElementById("qText").textContent = q.q;
+  document.getElementById("qCtx").textContent = q.ctx;
+  document.getElementById("slider").value = 50;
+  document.getElementById("pctRead").textContent = "50";
+  document.getElementById("qCard").className = "card";
+  document.getElementById("rCard").className = "card hidden";
+  var lb = document.getElementById("lockBtn"); lb.disabled = false; lb.textContent = "LOCK IT IN";
+  track("q_view", { question_id: q.id, slot: cur + 1 });
+}
+async function lockAnswer() {
+  var q = Q[cur], you = parseInt(document.getElementById("slider").value, 10);
+  var lb = document.getElementById("lockBtn"); lb.disabled = true; lb.textContent = "Locking…";
+  var market = q.market;
+  try {
+    var r = await fetch("/api/forecast", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ device_id: DEV, question_id: q.id, prob: you })
+    });
+    var j = await r.json();
+    if (j.locked) { market = (j.market_cents != null ? j.market_cents : market); }
+    else if (j.already && j.existing) { you = j.existing.prob; market = j.existing.market_cents_at_lock != null ? j.existing.market_cents_at_lock : market; }
+    else if (j.error) { lb.disabled = false; lb.textContent = "LOCK IT IN"; alert("Could not lock: " + j.error); return; }
+  } catch (e) { /* offline: reveal against load-time market, unsaved */ }
+  track("q_lock", { question_id: q.id, prob: you, market_cents: market });
+  lockedIds[q.id] = you;
+  answers.push({ you: you, mkt: market, label: q.label, settle: settleLabel(q.close) });
+  document.getElementById("qCard").className = "card hidden";
+  var d = you - market, ad = Math.abs(d);
+  document.getElementById("barYou").style.width = "0%";
+  document.getElementById("barMkt").style.width = "0%";
+  document.getElementById("valYou").textContent = you + "%";
+  document.getElementById("valMkt").textContent = (market != null ? market + "¢" : "—");
+  var line;
+  if (market == null) line = "The market price could not be read just now — your forecast is what counts, and it is locked.";
+  else if (ad <= 2) line = "You and the market are eye to eye. No edge staked either way.";
+  else if (d > 0) line = "You are <b>" + ad + " points more confident</b> than the crowd — contrarian on the YES side. If reality sides with you, that gap is your edge.";
+  else line = "You are <b>" + ad + " points more skeptical</b> than the crowd — contrarian on the NO side. If reality sides with you, that gap is your edge.";
+  document.getElementById("deltaLine").innerHTML = line;
+  document.getElementById("mSettle").textContent = "Settles " + settleLabel(q.close);
+  document.getElementById("mSrc").innerHTML = '<a href="' + q.url + '" target="_blank" rel="noopener">view market on Kalshi ↗</a>';
+  var slot = document.getElementById("nudgeSlot"); slot.innerHTML = "";
+  if (market != null && ad >= 10) {
+    var sk = (RESULTS && RESULTS.skill || []).find(function (s) { return s.domain === q.domain; });
+    var n = sk ? sk.settled_n : 0;
+    track("nudge_view", { question_id: q.id, deviation: ad, domain: q.domain, settled_n: n });
+    slot.innerHTML = '<div class="nudge"><span class="locktag">LOCKED</span><div class="kicker">Edge protocol</div>' +
+      "<p>This panel opens only with a <b>proven calibration record in " + q.domain + "</b>: 20 settled forecasts with positive edge across your last 20. " +
+      "Your record here so far: <b>" + n + " of 20</b>. No record, no nudge — skill is demonstrated before it is ever spent.</p></div>";
+  }
+  document.getElementById("nextBtn").textContent = (cur === Q.length - 1) ? "See your edition summary →" : "Next question →";
+  document.getElementById("rCard").className = "card";
+  track("reveal_view", { question_id: q.id });
+  setTimeout(function () {
+    document.getElementById("barYou").style.width = you + "%";
+    if (market != null) document.getElementById("barMkt").style.width = market + "%";
+  }, 60);
+}
+function nextQuestion() {
+  track("next_q");
   cur++;
-  if(cur<Q.length){ renderQ(); }
-  else{ showSummary(); }
+  advanceToUnlocked();
 }
-function showSummary(){
-  document.getElementById("playArea").className="hidden";
-  document.getElementById("summaryArea").className="";
-  var t=document.getElementById("sumTable"), sumDev=0, rows="";
-  answers.forEach(function(a){
-    var d=a.you-a.mkt; sumDev+=Math.abs(d);
-    rows+="<tr><td>"+a.label+"</td><td>"+a.you+"%</td><td>"+a.mkt+"¢</td>"+
-      '<td class="'+(d>=0?"pos":"neg")+'">'+(d>=0?"+":"")+d+"</td><td>"+a.settle+"</td></tr>";
+function replayFromPending() {
+  cur = 0; answers = [];
+  Q.forEach(function (q) {
+    answers.push({ you: lockedIds[q.id], mkt: q.market, label: q.label, settle: settleLabel(q.close), prelocked: true });
   });
-  t.innerHTML="<tr><th>Question</th><th>You</th><th>Market</th><th>Δ</th><th>Settles</th></tr>"+rows;
-  var avg=(sumDev/answers.length).toFixed(1);
+  document.getElementById("introCard").className = "card hidden";
+  showSummary();
+}
+function showSummary() {
+  track("summary_view", { edition: ED && ED.number });
+  document.getElementById("playArea").className = "hidden";
+  document.getElementById("summaryArea").className = "";
+  document.getElementById("sumKick").textContent = "Locked · Edition № " + (ED ? ED.number : "—");
+  var sumDev = 0, nDev = 0, rows = "<tr><th>Question</th><th>You</th><th>Market</th><th>Δ</th><th>Settles</th></tr>";
+  answers.forEach(function (a) {
+    var d = (a.mkt != null) ? a.you - a.mkt : null;
+    if (d != null) { sumDev += Math.abs(d); nDev++; }
+    rows += "<tr><td>" + a.label + "</td><td>" + a.you + "%</td><td>" + (a.mkt != null ? a.mkt + "¢" : "—") + "</td>" +
+      (d != null ? '<td class="' + (d >= 0 ? "pos" : "neg") + '">' + (d >= 0 ? "+" : "") + d + "</td>" : "<td>—</td>") +
+      "<td>" + a.settle + "</td></tr>";
+  });
+  document.getElementById("sumTable").innerHTML = rows;
+  var avg = nDev ? (sumDev / nDev).toFixed(1) : "0";
   document.getElementById("boldness").textContent =
-    "Average deviation from the market: "+avg+" points. "+
-    (avg>=12 ? "A bold edition — you are betting your judgment against the crowd’s, five times."
-     : avg>=5 ? "Selective disagreement — the calibrated player’s signature."
-     : "You shadowed the market closely. Remember: matching the crowd banks zero edge.");
-  document.getElementById("schedule").innerHTML =
-    "<b>Monday</b> — Denver’s high (NWS report) &nbsp;·&nbsp; <b>Tuesday 8:30 AM</b> — July CPI &nbsp;·&nbsp; "+
-    "<b>Aug 31</b> — WTI $95 window closes &nbsp;·&nbsp; <b>Sep 16</b> — the Fed &nbsp;·&nbsp; <b>Jan 26, 2028</b> — the long game.";
+    "Average deviation from the market: " + avg + " points. " +
+    (avg >= 12 ? "A bold edition — you are betting your judgment against the crowd’s." :
+     avg >= 5 ? "Selective disagreement — the calibrated player’s signature." :
+     "You shadowed the market closely. Remember: matching the crowd banks zero edge.");
+  document.getElementById("schedule").innerHTML = answers.map(function (a) {
+    return "<b>" + a.settle + "</b> — " + a.label;
+  }).join(" &nbsp;·&nbsp; ");
   drawCurve();
-  var arrows=answers.map(function(a){var d=a.you-a.mkt; return (Math.abs(d)<=2?"●":(d>0?"▲":"▼"))+(Math.abs(d)<=2?"":Math.abs(d));}).join(" ");
+  var arrows = answers.map(function (a) {
+    if (a.mkt == null) return "●";
+    var d = a.you - a.mkt;
+    return (Math.abs(d) <= 2 ? "●" : (d > 0 ? "▲" : "▼")) + (Math.abs(d) <= 2 ? "" : Math.abs(d));
+  }).join(" ");
   document.getElementById("shareDC").textContent =
-    "PREDICTA №1 — 5 locked\nyou vs market: "+arrows+"\navg deviation: "+avg+
-    "\nanswer key: Mon · Tue · Aug 31 · Sep 16 · Jan ’28\npredicta.game";
+    "PREDICTA №" + (ED ? ED.number : "?") + " — " + answers.length + " locked\nyou vs market: " + arrows + "\navg deviation: " + avg +
+    "\nanswer key: " + answers.map(function (a) { return a.settle; }).filter(function (v, i, s) { return s.indexOf(v) === i; }).join(" · ") +
+    "\npredicta.game";
 }
 
-/* ---------- calibration curve (labeled sample) ---------- */
-function drawCurve(){
-  var pts=[[5,4],[15,13],[25,22],[35,30],[45,41],[55,49],[65,54],[75,58],[85,74],[95,90]];
-  var w=560,h=300,p=44;
-  function X(v){return p+(v/100)*(w-2*p);} function Y(v){return h-p-(v/100)*(h-2*p);}
-  var s='<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto">';
-  s+='<line x1="'+X(0)+'" y1="'+Y(0)+'" x2="'+X(100)+'" y2="'+Y(100)+'" stroke="#c9c2b2" stroke-dasharray="5 5" stroke-width="1.5"/>';
-  s+='<text x="'+(X(100)-4)+'" y="'+(Y(100)+16)+'" text-anchor="end" font-size="11" fill="#6f6a5e">perfect calibration</text>';
-  var path="";
-  pts.forEach(function(pt,i){ path+=(i===0?"M":"L")+X(pt[0])+" "+Y(pt[1])+" "; });
-  s+='<path d="'+path+'" fill="none" stroke="#b4552d" stroke-width="2.5"/>';
-  pts.forEach(function(pt){
-    var hot=(pt[0]>=65&&pt[0]<=80);
-    s+='<circle cx="'+X(pt[0])+'" cy="'+Y(pt[1])+'" r="'+(hot?6:4)+'" fill="'+(hot?"#b4552d":"#fffdf8")+'" stroke="#b4552d" stroke-width="2"/>';
+/* ---------- calibration curve ---------- */
+function drawCurve() {
+  var mine = [];
+  if (RESULTS && RESULTS.calibration) {
+    RESULTS.calibration.filter(function (c) { return c.domain === "all" && c.n > 0; })
+      .forEach(function (c) { mine.push([c.bucket, Math.round(100 * c.hits / c.n)]); });
+  }
+  var pts, isReal = mine.length >= 3;
+  if (isReal) { pts = mine.sort(function (a, b) { return a[0] - b[0]; }); }
+  else { pts = [[5,4],[15,13],[25,22],[35,30],[45,41],[55,49],[65,54],[75,58],[85,74],[95,90]]; }
+  document.getElementById("curveBadge").textContent = isReal ? "YOUR RECORD" : "SAMPLE PREVIEW";
+  document.getElementById("curveNote").textContent = isReal
+    ? "Drawn from your settled forecasts (all domains). Perfect calibration hugs the diagonal."
+    : "Once your forecasts settle, this is drawn from your own record: when you say 80%, how often does it happen? Perfect calibration hugs the diagonal.";
+  var w = 560, h = 300, p = 44;
+  function X(v) { return p + (v / 100) * (w - 2 * p); } function Y(v) { return h - p - (v / 100) * (h - 2 * p); }
+  var s = '<svg viewBox="0 0 ' + w + " " + h + '" style="width:100%;height:auto">';
+  s += '<line x1="' + X(0) + '" y1="' + Y(0) + '" x2="' + X(100) + '" y2="' + Y(100) + '" stroke="#c9c2b2" stroke-dasharray="5 5" stroke-width="1.5"/>';
+  s += '<text x="' + (X(100) - 4) + '" y="' + (Y(100) + 16) + '" text-anchor="end" font-size="11" fill="#6f6a5e">perfect calibration</text>';
+  var path = "";
+  pts.forEach(function (pt, i) { path += (i === 0 ? "M" : "L") + X(pt[0]) + " " + Y(pt[1]) + " "; });
+  s += '<path d="' + path + '" fill="none" stroke="#b4552d" stroke-width="2.5"/>';
+  pts.forEach(function (pt) {
+    s += '<circle cx="' + X(pt[0]) + '" cy="' + Y(pt[1]) + '" r="4" fill="#fffdf8" stroke="#b4552d" stroke-width="2"/>';
   });
-  s+='<text x="'+X(72)+'" y="'+(Y(56)+26)+'" font-size="11.5" fill="#b4552d" font-weight="700">the overconfidence dip</text>';
-  s+='<text x="'+(p-6)+'" y="'+(Y(50)+4)+'" text-anchor="end" font-size="11" fill="#6f6a5e">happened</text>';
-  s+='<text x="'+X(50)+'" y="'+(h-10)+'" text-anchor="middle" font-size="11" fill="#6f6a5e">what you said (%)</text>';
-  s+="</svg>";
-  document.getElementById("curveSlot").innerHTML=s;
+  s += '<text x="' + (p - 6) + '" y="' + (Y(50) + 4) + '" text-anchor="end" font-size="11" fill="#6f6a5e">happened</text>';
+  s += '<text x="' + X(50) + '" y="' + (h - 10) + '" text-anchor="middle" font-size="11" fill="#6f6a5e">what you said (%)</text>';
+  s += "</svg>";
+  document.getElementById("curveSlot").innerHTML = s;
 }
 
-/* ---------- priced in ---------- */
-function drawSpark(){
-  var d=PI.askSeries, w=560,h=170,p=26;
-  var mx=100;
-  function X(i){return p+(i/(d.length-1))*(w-2*p);} function Y(v){return h-p-(v/mx)*(h-2*p);}
-  var s='<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto">';
-  [0,25,50,75,100].forEach(function(g){
-    s+='<line x1="'+p+'" y1="'+Y(g)+'" x2="'+(w-p)+'" y2="'+Y(g)+'" stroke="#efe9dc" stroke-width="1"/>';
-    s+='<text x="'+(p-5)+'" y="'+(Y(g)+3)+'" text-anchor="end" font-size="9.5" fill="#9a9384">'+g+'</text>';
+/* ---------- priced in (static vignette, tracked) ---------- */
+var PI = {
+  askSeries: [98,98,97,97,89,69,42,54,81,85,85,84,82,71,20,17,16,15,15,14,14,13,12,11,10,10,10],
+  anchor: 11, actual: 10, bid: 9, ask: 10
+};
+function drawSpark() {
+  var d = PI.askSeries, w = 560, h = 170, p = 26, mx = 100;
+  function X(i) { return p + (i / (d.length - 1)) * (w - 2 * p); } function Y(v) { return h - p - (v / mx) * (h - 2 * p); }
+  var s = '<svg viewBox="0 0 ' + w + " " + h + '" style="width:100%;height:auto">';
+  [0, 25, 50, 75, 100].forEach(function (g) {
+    s += '<line x1="' + p + '" y1="' + Y(g) + '" x2="' + (w - p) + '" y2="' + Y(g) + '" stroke="#efe9dc" stroke-width="1"/>';
+    s += '<text x="' + (p - 5) + '" y="' + (Y(g) + 3) + '" text-anchor="end" font-size="9.5" fill="#9a9384">' + g + "</text>";
   });
-  var path="";
-  d.forEach(function(v,i){ path+=(i===0?"M":"L")+X(i)+" "+Y(v)+" "; });
-  s+='<path d="'+path+'" fill="none" stroke="#2e5f8a" stroke-width="2.2"/>';
-  s+='<circle cx="'+X(4)+'" cy="'+Y(89)+'" r="4" fill="#b4552d"/>';
-  s+='<text x="'+X(4)+'" y="'+(Y(89)-9)+'" font-size="10.5" fill="#b4552d" font-weight="700">the leak hits</text>';
-  s+='<text x="'+X(0)+'" y="'+(h-6)+'" font-size="9.5" fill="#9a9384">Wed 6 AM</text>';
-  s+='<text x="'+X(d.length-1)+'" y="'+(h-6)+'" text-anchor="end" font-size="9.5" fill="#9a9384">→ Sat (hidden)</text>';
-  s+="</svg>";
-  document.getElementById("sparkSlot").innerHTML=s;
+  var path = "";
+  d.forEach(function (v, i) { path += (i === 0 ? "M" : "L") + X(i) + " " + Y(v) + " "; });
+  s += '<path d="' + path + '" fill="none" stroke="#2e5f8a" stroke-width="2.2"/>';
+  s += '<circle cx="' + X(4) + '" cy="' + Y(89) + '" r="4" fill="#b4552d"/>';
+  s += '<text x="' + X(4) + '" y="' + (Y(89) - 9) + '" font-size="10.5" fill="#b4552d" font-weight="700">the leak hits</text>';
+  s += '<text x="' + X(0) + '" y="' + (h - 6) + '" font-size="9.5" fill="#9a9384">Wed 6 AM</text>';
+  s += '<text x="' + X(d.length - 1) + '" y="' + (h - 6) + '" text-anchor="end" font-size="9.5" fill="#9a9384">→ now (hidden)</text>';
+  s += "</svg>";
+  document.getElementById("sparkSlot").innerHTML = s;
 }
-function lockPI(){
-  if(piDone) return; piDone=true;
-  var g=parseInt(document.getElementById("piSlider").value,10);
-  var miss=Math.abs(g-PI.actual);
-  var score = miss<=1?10 : miss<=3?8 : miss<=6?6 : miss<=10?4 : miss<=15?2 : 0;
-  var dirYou=g-PI.anchor, dirReal=PI.actual-PI.anchor;
-  var dirOK=(dirYou===0&&dirReal===0)||(dirYou*dirReal>0);
-  document.getElementById("piScore").innerHTML=score+"<small>/10</small>";
-  document.getElementById("piActual").innerHTML="Actual: <b>"+PI.actual+"¢</b> ("+PI.bid+" bid / "+PI.ask+" ask). You said "+g+"¢.";
+function lockPI() {
+  if (piDone) return; piDone = true;
+  var g = parseInt(document.getElementById("piSlider").value, 10);
+  var miss = Math.abs(g - PI.actual);
+  var score = miss <= 1 ? 10 : miss <= 3 ? 8 : miss <= 6 ? 6 : miss <= 10 ? 4 : miss <= 15 ? 2 : 0;
+  track("pi_lock", { guess: g, actual: PI.actual, score: score });
+  var dirYou = g - PI.anchor, dirReal = PI.actual - PI.anchor;
+  var dirOK = (dirYou === 0 && dirReal === 0) || (dirYou * dirReal > 0);
+  document.getElementById("piScore").innerHTML = score + "<small>/10</small>";
+  document.getElementById("piActual").innerHTML = "Actual: <b>" + PI.actual + "¢</b> (" + PI.bid + " bid / " + PI.ask + " ask). You said " + g + "¢.";
   document.getElementById("piVerdict").textContent =
-    (dirOK?"Direction ✓ — ":"Direction ✗ — ")+
-    (miss<=3?"and your magnitude was nearly exact.":
-     miss<=10?"but you expected a bigger reaction than the tape delivered.":
+    (dirOK ? "Direction ✓ — " : "Direction ✗ — ") +
+    (miss <= 3 ? "and your magnitude was nearly exact." :
+     miss <= 10 ? "but you expected a bigger reaction than the tape delivered." :
      "the tape barely moved; announcements rarely move what leaks already priced.");
   document.getElementById("piLesson").textContent =
-    "The repricing happened Wednesday, on the leak — the offer collapsed from the high 90s into the teens within hours. "+
-    "Two days of official confirmation and fee outrage were worth about a penny. Announcements aren’t information. Surprises are.";
+    "The repricing happened Wednesday, on the leak — the offer collapsed from the high 90s into the teens within hours. " +
+    "The official confirmation was worth about a penny. Announcements aren’t information. Surprises are.";
   document.getElementById("sharePI").textContent =
-    "PRICED IN — Aug 8\nWTI $95 after the Hormuz deal\ncall: "+g+"¢ · actual: "+PI.actual+"¢ · "+score+"/10\n“the leak was the news”\npredicta.game";
-  document.getElementById("piReveal").className="card";
+    "PRICED IN\nWTI $95 after the Hormuz deal\ncall: " + g + "¢ · actual: " + PI.actual + "¢ · " + score + "/10\n“the leak was the news”\npredicta.game";
+  document.getElementById("piReveal").className = "card";
 }
 
 /* ---------- share ---------- */
-function copyShare(id,cpid){
-  var txt=document.getElementById(id).textContent;
-  function done(){var c=document.getElementById(cpid); c.className="copied show"; setTimeout(function(){c.className="copied";},1600);}
-  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,done); }
-  else{ var ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select();
-        try{document.execCommand("copy");}catch(e){} document.body.removeChild(ta); done(); }
+function copyShare(id, cpid) {
+  var txt = document.getElementById(id).textContent;
+  track("share_copy", { which: id });
+  function done() { var c = document.getElementById(cpid); c.className = "copied show"; setTimeout(function () { c.className = "copied"; }, 1600); }
+  if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(txt).then(done, done); }
+  else {
+    var ta = document.createElement("textarea"); ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) { } document.body.removeChild(ta); done();
+  }
 }
 </script>
 </body>
