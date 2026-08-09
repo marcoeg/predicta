@@ -11,7 +11,7 @@ enabled = true
 
 [triggers]
 # Hourly at :15. The 16:15 UTC run also computes prior-day daily_metrics rollups.
-crons = ["15 * * * *"]
+crons = ["15 * * * *", "0 10 * * *"]
 
 [[d1_databases]]
 binding = "DB"
