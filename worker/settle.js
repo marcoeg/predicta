@@ -66,7 +66,7 @@ async function kalshiGet(env, path, query) {
 }
 async function kalshiMarkets(env, query) {
   const r = await kalshiGet(env, "/trade-api/v2/markets", query);
-  if (!r.ok) return [];
+  if (!r.ok) { console.log(`kalshi-fail status=${r.status} q=${String(query).slice(0, 60)}`); return []; }
   return (await r.json()).markets || [];
 }
 function midCents(m) {
@@ -347,15 +347,28 @@ async function buildDailyEdition(env) {
 }
 
 export default {
+  // Read-only diagnostics: reports whether the worker can reach Kalshi with its own
+  // credentials. No writes, no secrets exposed. GET the worker URL to check health.
+  async fetch(request, env) {
+    const r = await kalshiGet(env, "/trade-api/v2/markets", "tickers=KXFEDDECISION-26SEP-H0");
+    let n = null;
+    try { if (r.ok) n = ((await r.json()).markets || []).length; } catch (e) { /* body unreadable */ }
+    return new Response(JSON.stringify({
+      keyed: !!(env.KALSHI_KEY_ID && env.KALSHI_PRIVATE_KEY),
+      kalshi_status: r.status,
+      markets_returned: n,
+      db_bound: !!env.DB
+    }), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+  },
   async scheduled(event, env, ctx) {
+    // Settlement runs FIRST: grading players must never be blocked by editorial issues.
+    const settled = await settleDueQuestions(env);
     // Self-healing editorial: from 10:00 UTC (6 AM EDT) onward, EVERY run ensures
-    // today's edition exists (buildDailyEdition is idempotent via the date check),
-    // so no single cron misfire can leave a morning without questions.
+    // today's edition exists (buildDailyEdition is idempotent via the date check).
     let edition = null;
     const hourUTC = new Date().getUTCHours();
     if (hourUTC >= 10) edition = await buildDailyEdition(env);
-    const settled = await settleDueQuestions(env);
     if (hourUTC === 16) await rollupYesterday(env);
-    console.log(`predicta: edition=${edition} settled=${settled} rollup=${hourUTC === 16}`);
+    console.log(`predicta: settled=${settled} edition=${edition} rollup=${hourUTC === 16}`);
   }
 };
