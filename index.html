@@ -356,6 +356,8 @@ var cur = 0, answers = [], piDone = false;
     } else if (pendingCount > 0) {
       btn.textContent = "Continue — " + (Q.length - pendingCount) + " question" + (Q.length - pendingCount > 1 ? "s" : "") + " left";
       btn.onclick = function () { startDC(); };
+    } else {
+      btn.textContent = "Begin — question 1 of " + Q.length;
     }
     btn.disabled = false;
     document.getElementById("introKick").textContent = "Edition № " + ED.number + " · How this works";
