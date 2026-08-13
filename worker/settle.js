@@ -83,7 +83,7 @@ function etDate(d) {
 // ---------- settlement ----------
 async function settleDueQuestions(env) {
   const due = (await env.DB.prepare(
-    "SELECT id, ticker, domain FROM questions WHERE status = 'open' AND close_time <= datetime('now') LIMIT 40"
+    "SELECT id, ticker, domain FROM questions WHERE status = 'open' AND strftime('%s', replace(replace(close_time,'T',' '),'Z','')) <= strftime('%s','now') LIMIT 40"
   ).all()).results || [];
   if (!due.length) return 0;
 
