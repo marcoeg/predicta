@@ -5,6 +5,7 @@
 name = "predicta-settle"
 main = "settle.js"
 compatibility_date = "2026-08-01"
+keep_vars = true  # CRITICAL: preserve dashboard-set secrets (KALSHI_*) across wrangler deploys
 
 [observability]
 enabled = true
