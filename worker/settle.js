@@ -347,9 +347,19 @@ async function buildDailyEdition(env) {
 }
 
 export default {
-  // Read-only diagnostics: reports whether the worker can reach Kalshi with its own
-  // credentials. No writes, no secrets exposed. GET the worker URL to check health.
+  // Diagnostics + manual self-heal. Plain GET = read-only health check (no writes,
+  // no secrets exposed). GET ?run=1 = run the same idempotent work as the hourly cron:
+  // settle due questions, then ensure today's edition exists (no-op when nothing is due).
   async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.searchParams.get("run") === "1") {
+      const settled = await settleDueQuestions(env);
+      const edition = await buildDailyEdition(env);
+      console.log(`predicta(manual): settled=${settled} edition=${edition}`);
+      return new Response(JSON.stringify({ ran: true, settled, edition }), {
+        headers: { "content-type": "application/json", "cache-control": "no-store" }
+      });
+    }
     const r = await kalshiGet(env, "/trade-api/v2/markets", "tickers=KXFEDDECISION-26SEP-H0");
     let n = null;
     try { if (r.ok) n = ((await r.json()).markets || []).length; } catch (e) { /* body unreadable */ }
