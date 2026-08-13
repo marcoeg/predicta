@@ -11,7 +11,9 @@ export async function onRequestGet({ env }) {
 
   const qs = (await env.DB.prepare(
     `SELECT id, slot, category, domain, text, context, ticker, market_url, close_time, lock_price_cents
-     FROM questions WHERE edition_id = ? AND status = 'open' AND close_time > datetime('now') ORDER BY slot`
+     FROM questions WHERE edition_id = ? AND status = 'open'
+       AND strftime('%s', replace(replace(close_time,'T',' '),'Z','')) > strftime('%s','now')
+     ORDER BY slot`
   ).bind(ed.id).all()).results || [];
 
   let mids = {};
